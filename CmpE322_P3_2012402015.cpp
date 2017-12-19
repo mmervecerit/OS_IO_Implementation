@@ -4,6 +4,8 @@
 #include <vector>
 #include <queue>
 #include <limits>
+#include <cstring>
+
 using namespace std;
 long TIME=0; //the global time, it is the time in the output file 
 long QUANTUM=100; //quantum can be changed
@@ -21,6 +23,9 @@ struct Process{
 //related with the content of codefiles, it is changed during the scheduling. 
 queue<Process> Processes; //the queue of all processes, arrivals
 queue<Process> Ready_Queue; //this is the queue of ready processes
+queue<Process> Printer_0_Wait_Queue; //this is the queue of the waiting processes for printer 0
+queue<Process> Printer_1_Wait_Queue; //this is the queue of the waiting processes for printer 1
+queue<Process> Hard_Drive_Wait_Queue; //this is the queue of waiting processes for hard-drive
 //This function outputs the TIME and ready queue. When a change occurs in the ready queue, we are calling this function.
 void update_outputfile(ofstream* out){
     string tire = "-";
@@ -50,8 +55,8 @@ fstream& GotoLine(fstream& file, unsigned int num){
 int main() {
     ifstream infile;
     ofstream outfile;
-    infile.open("definition.txt"); //the code assumes that the definition file will be named as definition.txt always and it will be placed to the same place with source code.
-    outfile.open("output.txt"); //output file is named as output.txt and it is placed to the same place with source code.
+    infile.open("/home/mmervecerit/CLionProjects/cmpe322/definition.txt"); //the code assumes that the definition file will be named as definition.txt always and it will be placed to the same place with source code.
+    outfile.open("/home/mmervecerit/CLionProjects/cmpe322/output2.txt"); //output file is named as output.txt and it is placed to the same place with source code.
     string a,b;
     long c;
     if (infile.is_open()){
@@ -92,7 +97,7 @@ int main() {
             Ready_Queue.push(front);
             Processes.pop();
             current_process = Ready_Queue.front();
-            codefile_directory=current_process.code_file;
+            codefile_directory="/home/mmervecerit/CLionProjects/cmpe322/"+current_process.code_file;
             Ready_Queue.pop();
 
         }
@@ -100,15 +105,37 @@ int main() {
 //If it will be completed, we are done with it we wont put it back. But if it is not completed, we will put it to ready queue again.
         else{
             current_process = Ready_Queue.front();
-            codefile_directory=current_process.code_file;
+            codefile_directory="/home/mmervecerit/CLionProjects/cmpe322/"+current_process.code_file;
             Ready_Queue.pop();
         }
         fstream codefile;
         codefile.open(codefile_directory,fstream::in);
         GotoLine(codefile, static_cast<unsigned int>((current_process.last_executed_line) + 1));
 //if quantum is not exceeded we go into while loop, since the instructions are atomic we dont halt the process if quantum is exceeded. If the previous instruction is exit, we are not go into while loop.
+        char myArray[11];
+        string printer="disp";
+        string harddrive="read";
+        char printer_array[printer.length()+1];
+        strcpy(printer_array,printer.c_str());
+        char harddrive_array[harddrive.length()+1];
+        strcpy(harddrive_array,harddrive.c_str());
         while(duration_temp<QUANTUM && instruction_name!="exit"){
             codefile>>instruction_name>>duration;
+            strcpy(myArray,instruction_name.c_str());
+            if(strstr(myArray,printer_array)){
+                unsigned long last= instruction_name.length()-1;
+                char which_printer_char = instruction_name[last];
+                int which_printer_int = which_printer_char - '0';
+
+            }
+            else if(strstr(myArray,harddrive_array)){
+                string s = instruction_name;
+                string delimiter = "_";
+                string token = s.substr(0,s.find(delimiter));
+                s.erase(0, s.find(delimiter) + delimiter.length());
+                int which_block = atoi(s.c_str());
+             
+            }
             line_offset++;
             duration_temp+=duration;
         }
