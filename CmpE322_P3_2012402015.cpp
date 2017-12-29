@@ -13,15 +13,17 @@ long TIME=0; //the global time, it is the time in the output file
 long QUANTUM=100; //quantum can be changed
 int howmanyprocesses=0; //it is the track of the processes we are dealing with
 int completed=0; //if a process is completed we will increment this by one
-long TIME_Printer1=0;
-long TIME_Printer0=0;
-long TIME_Harddrive=0;
-int flag=0;
-struct Block{
+long TIME_Printer1=0; //this is the variable for Printer 1's own time
+long TIME_Printer0=0; //this is the variable for Printer 0's own time
+long TIME_Harddrive=0; //this is the variable for Hard Drive's own time
+int flag=0,flag1=0; //some flags to check if any read, disp came
+struct Block{ //This is a struct of block, cache contains blocks
+
     int blocknum=-1;
     int last_used=0;
 };
-
+//A Process includes its id, name, codefile,arrival time and last executed line. ID, Name, codefile and arrival time is taken from definition file, last executed line is
+//related with the content of codefiles, it is changed during the scheduling.
 struct Process{
     int id;
     string name;
@@ -30,16 +32,19 @@ struct Process{
     int last_executed_line;
 
 };
-//A Process includes its id, name, codefile,arrival time and last executed line. ID, Name, codefile and arrival time is taken from definition file, last executed line is
-//related with the content of codefiles, it is changed during the scheduling. 
+
+
 queue<Process> Processes; //the queue of all processes, arrivals
 queue<Process> Ready_Queue; //this is the queue of ready processes
 queue<Process> Printer_0_Wait_Queue; //this is the queue of the waiting processes for printer 0
 queue<Process> Printer_1_Wait_Queue; //this is the queue of the waiting processes for printer 1
 queue<Process> Hard_Drive_Wait_Queue;//this is the queue of waiting processes for hard-drive
+queue<long> Printer_0_Wait_Queue_Time; //this is the queue for durations of the printer 0's disps
+queue<long> Printer_1_Wait_Queue_Time; //this is the queue for durations of the printer 1's disps
+queue<long> Hard_Drive_Wait_Queue_Time; //this is the queue for durations of the reads in the waiting queue
 array<Block,2> cache; //LRU cache with 2 blocks
-//This function outputs the TIME and ready queue. When a change occurs in the ready queue, we are calling this function.
 
+//checks if the given value(block number) is in cache or not, returns negative number if it is not, positive if it is found
 int cache_find(int value){
     for(int i=0;i<2;i++){
         if(cache[i].blocknum==value){
@@ -50,43 +55,49 @@ int cache_find(int value){
     }
     return -1;
 }
+//puts the block number to cache while removing the least used block number. Having a last_used of 1 means that that block number is not least recently used and it should not be removed from cache.
+//if nothing in the cache.initial value of blocknum is -1.
+//if there is smt in cache,find the last used and keep it.
 bool cache_put(int value){
-        for(int i=0;i<2;i++){
-            if(cache[i].blocknum == -1){
-                cache[i].blocknum=value;
-                cache[i].last_used=1;
-                cache[1-i].last_used=0;
-                return true;
-            }
+    for(int i=0;i<2;i++){
+        if(cache[i].blocknum == -1){
+            cache[i].blocknum=value;
+            cache[i].last_used=1;
+            cache[1-i].last_used=0;
+            return true;
         }
-        for(int i=0;i<2;i++){
-            if(cache[i].last_used==1){
-                cache[i].blocknum=value;
-                cache[i].last_used=0;
-                return false;
-            }
+    }
+    for(int i=0;i<2;i++){
+        if(cache[i].last_used==1){
+            cache[1-i].blocknum=value;
+            cache[i].last_used=0;
+            cache[1-i].last_used=1;
+            return false;
         }
-        cache[0].blocknum=value;
-        cache[0].last_used=0;
-        cache[1].last_used=1;
+    }
 }
+//This function outputs the TIME and ready queue. When a change occurs in the ready queue, we are calling this function.
+
 void update_outputfile(ofstream* out){
     string tire = "-";
     string ready_queue;
     if(!Ready_Queue.empty()){
-    queue<Process> copy_queue = Ready_Queue;
-    ready_queue= copy_queue.front().name;
-    copy_queue.pop();
-    while(!copy_queue.empty()){
-        ready_queue.append(tire);
-        ready_queue.append(copy_queue.front().name);
+        queue<Process> copy_queue = Ready_Queue;
+        ready_queue= copy_queue.front().name;
         copy_queue.pop();
-    }
-    *out<<TIME<<"::HEAD-"<<ready_queue<<"-TAIL"<<endl;}
+        while(!copy_queue.empty()){
+            ready_queue.append(tire);
+            ready_queue.append(copy_queue.front().name);
+            copy_queue.pop();
+        }
+        *out<<TIME<<"::HEAD-"<<ready_queue<<"-TAIL"<<endl;}
     else{
         *out<<TIME<<"::HEAD--TAIL"<<endl;
     }
 }
+
+//The 3 functions below outputs the TIME and waiting queue of their own. When a change occurs in the waiting queue, we are calling this function.
+
 void update_outputfile_harddrive(ofstream* out,long time){
     string tire = "-";
     string ready_queue;
@@ -149,14 +160,14 @@ fstream& GotoLine(fstream& file, unsigned int num){
 int main() {
     ifstream infile;
     ofstream outfile;
-    ofstream outfile_printer0;
-    ofstream outfile_printer1;
-    ofstream outfile_harddrive;
-    infile.open("/home/mmervecerit/CLionProjects/cmpe322/definition.txt"); //the code assumes that the definition file will be named as definition.txt always and it will be placed to the same place with source code.
-    outfile.open("/home/mmervecerit/CLionProjects/cmpe322/output2.txt"); //output file is named as output.txt and it is placed to the same place with source code.
-    outfile_printer0.open("/home/mmervecerit/CLionProjects/cmpe322/output2_10.txt");
-    outfile_printer1.open("/home/mmervecerit/CLionProjects/cmpe322/output2_11.txt");
-    outfile_harddrive.open("/home/mmervecerit/CLionProjects/cmpe322/output2_12.txt");
+    ofstream outfile_printer0; //output file for printer 0
+    ofstream outfile_printer1; //output file for printer 1
+    ofstream outfile_harddrive;//output file for harddrive
+    infile.open("./definition.txt"); //the code assumes that the definition file will be named as definition.txt always and it will be placed to the same place with source code.
+    outfile.open("./output.txt"); //output file is named as output.txt and it is placed to the same place with source code.
+    outfile_printer0.open("./output_10.txt"); //output file of printer 0
+    outfile_printer1.open("./output_11.txt"); //output file of printer 1
+    outfile_harddrive.open("./output_12.txt"); //output file of hard drive
     string a,b;
     long c;
     if (infile.is_open()){
@@ -185,9 +196,9 @@ int main() {
     while(completed!=howmanyprocesses){
 //this while loop also works when ready queue is empty.
         string instruction_name;
-        bool aa=false,bb=false,cc=false;
+        bool aa=false,bb=false,cc=false; //these are conditions to check, they will be introduced later
         long duration=0;
-        flag=0;
+        flag1=0;
         long duration_temp=0;
         int line_offset=0;
         string codefile_directory="";
@@ -199,17 +210,15 @@ int main() {
             Ready_Queue.push(front);
             Processes.pop();
             current_process = Ready_Queue.front();
-            cout<<"Current process is "<<current_process.name<<" and time= "<<TIME<<endl;
-            codefile_directory="/home/mmervecerit/CLionProjects/cmpe322/"+current_process.code_file;
+            codefile_directory=current_process.code_file;
             Ready_Queue.pop();
 
         }
-//else we are going to current process's codefile and we pop the process from ready queue. 
+//else we are going to current process's codefile and we pop the process from ready queue.
 //If it will be completed, we are done with it we wont put it back. But if it is not completed, we will put it to ready queue again.
         else{
             current_process = Ready_Queue.front();
-            cout<<"Current process is "<<current_process.name<<" and time= "<<TIME<<endl;
-            codefile_directory="/home/mmervecerit/CLionProjects/cmpe322/"+current_process.code_file;
+            codefile_directory=current_process.code_file;
             Ready_Queue.pop();
         }
         fstream codefile;
@@ -217,381 +226,164 @@ int main() {
         GotoLine(codefile, static_cast<unsigned int>((current_process.last_executed_line) + 1));
 //if quantum is not exceeded we go into while loop, since the instructions are atomic we dont halt the process if quantum is exceeded. If the previous instruction is exit, we are not go into while loop.
         char myArray[11];
-        string printer="disp";
-        string harddrive="read";
+        string printer="disp"; //since instructions for printers contains string disp we look for that
+        string harddrive="read"; //since instructions for harddrive contains string read we look for that
         char printer_array[printer.length()+1];
         strcpy(printer_array,printer.c_str());
         char harddrive_array[harddrive.length()+1];
         strcpy(harddrive_array,harddrive.c_str());
         while(duration_temp<QUANTUM && instruction_name!="exit"){
+            flag=0;
             codefile>>instruction_name>>duration;
-            cout<< "Current Process: "<<current_process.name<<" Instr: "<<instruction_name<<" Duration: "<<duration<<" Duration_temp: "<<duration_temp<<"TIME: "<<TIME<<endl;
             strcpy(myArray,instruction_name.c_str());
+            //if instruction name contains disp in it
+            //take the last char since it corresponds to the which printer to go to
+            //if it is printer 0, process should be sent to waiting queue of printer 0 with the updated last executed line
+            //if this is the first one in the queue we should set the TIME of Printer 0 to current time
+            //while pushing the process to printer 0 wait queue we should also push the duration to time queues.we will use this time to determine when to remove the process
+            //since the waiting queue is changed this should be logged to corresponding output file
+            //instruction shouldn't be added to TIME now.
+            //below flags to show that we sent something to waiting queues.
             if(strstr(myArray,printer_array)){
-                cout<<"Current Process wants Printer"<<endl;
                 unsigned long last= instruction_name.length()-1;
                 char which_printer_char = instruction_name[last];
                 int which_printer_int = which_printer_char - '0';
                 if(which_printer_int==0){
-                    cout<<"Current Process wants Printer-0, we will put it to waiting que"<<endl;
                     line_offset++;
                     current_process.last_executed_line+=line_offset;
+                    if(Printer_0_Wait_Queue.empty()){TIME_Printer0=TIME+duration_temp;}
                     Printer_0_Wait_Queue.push(current_process);
-                    TIME_Printer0=TIME+duration_temp+duration;
-                    cout<<"We should remove the process from Printer-0 at "<<TIME_Printer0<<endl;
+                    Printer_0_Wait_Queue_Time.push(duration);
                     update_outputfile_printer0(&outfile_printer0,TIME+duration_temp);
                     duration=0;
                     flag=1;
-                    break;
+                    flag1=1;
 
-                }
+
+
+                }//printer 1 is similar to printer 0. see above comments
+
                 else if(which_printer_int==1){
-                    cout<<"Current Process wants Printer-1, we will put it to waiting que"<<endl;
                     line_offset++;
                     current_process.last_executed_line+=line_offset;
+                    if(Printer_1_Wait_Queue.empty()){TIME_Printer1=TIME+duration_temp;}
                     Printer_1_Wait_Queue.push(current_process);
-                    TIME_Printer1=TIME+duration_temp+duration;
-                    cout<<"We should remove the process from Printer-1 at "<<TIME_Printer1<<endl;
+                    Printer_1_Wait_Queue_Time.push(duration);
                     update_outputfile_printer1(&outfile_printer1,TIME+duration_temp);
                     duration=0;
                     flag=1;
-                    break;
+                    flag1=1;
+
+
                 }
                 else{
-                    cout<<"ERROR READING PRINTER INFO"<<endl;
                     break;
                 }
 
             }
+                //if instruction name contains read in it, this means harddrive operation
+                //we should learn the block number and then check if cache contains it or not
+//if it is not in the cache, we should send process to waiting queue of hard drive. this part is similar to printers except the cache_put. we should also add the block number to cache while removing the least recently used block number
+                //if it is found in cache, nothing special just skip the read instruction by making the duration 0.
+
             else if(strstr(myArray,harddrive_array)){
                 string s = instruction_name;
                 string delimiter = "_";
                 string token = s.substr(0,s.find(delimiter));
                 s.erase(0, s.find(delimiter) + delimiter.length());
                 int which_block = atoi(s.c_str());
-                cout<<"Current Process wants Harddrive with blocknumber: "<<which_block<<endl;
                 if(cache_find(which_block)<0){
-                    cout<<"cachete yok o block, waiting queya at"<<endl;
                     line_offset++;
                     current_process.last_executed_line+=line_offset;
+                    if(Hard_Drive_Wait_Queue.empty()){
+                        TIME_Harddrive=TIME+duration_temp;
+                        }
                     Hard_Drive_Wait_Queue.push(current_process);
+                    Hard_Drive_Wait_Queue_Time.push(duration);
                     update_outputfile_harddrive(&outfile_harddrive,TIME+duration_temp);
                     cache_put(which_block);
-                    TIME_Harddrive=TIME+duration_temp+duration;
-                    cout<<"We should remove the process from Harddrive at "<<TIME_Harddrive<<endl;
                     duration=0;
                     flag=1;
-                    break;
+                    flag1=1;
+
                 }
                 else{
-                        cout<<"cachede bulduk, gerek yok waitinge, hicbisi olmamıs gibi devam et"<<endl;
-                         duration=0;}
+                    duration=0; }
+
+            }
+            //as the time passes, the time in the IO also passes. we should check if the time is up for the IO instructions.
+//if they are done we should pop the process from wait queues and put them to ready queue while updating the time of the IO devices and logging the changes to output files
+
+            aa  = (TIME_Printer0+Printer_0_Wait_Queue_Time.front() <=TIME+duration_temp+duration && !Printer_0_Wait_Queue.empty());
+            bb  = (TIME_Printer1+Printer_1_Wait_Queue_Time.front() <= TIME+duration_temp+duration && !Printer_1_Wait_Queue.empty());
+            cc  = (TIME_Harddrive+Hard_Drive_Wait_Queue_Time.front() <= TIME+duration_temp+duration && !Hard_Drive_Wait_Queue.empty());
+            if(aa){
+                Process x=Printer_0_Wait_Queue.front();
+                long time=Printer_0_Wait_Queue_Time.front();
+                Ready_Queue.push(x);
+                Printer_0_Wait_Queue.pop();
+                Printer_0_Wait_Queue_Time.pop();
+                TIME_Printer0=TIME+duration_temp+duration;
+                update_outputfile_printer0(&outfile_printer0,TIME_Printer0);
+
+            }
+            if(bb){
+                Process x=Printer_1_Wait_Queue.front();
+                long time=Printer_1_Wait_Queue_Time.front();
+
+                Ready_Queue.push(x);
+                Printer_1_Wait_Queue.pop();
+                Printer_1_Wait_Queue_Time.pop();
+                TIME_Printer1=TIME+duration_temp+duration;
+                update_outputfile_printer1(&outfile_printer1,TIME_Printer1);
+
+            }
+            if(cc){
+                Process x=Hard_Drive_Wait_Queue.front();
+                long time=Hard_Drive_Wait_Queue_Time.front();
+
+                Ready_Queue.push(x);
+                Hard_Drive_Wait_Queue.pop();
+                Hard_Drive_Wait_Queue_Time.pop();
+                TIME_Harddrive=TIME+duration_temp+duration;
+                update_outputfile_harddrive(&outfile_harddrive,TIME_Harddrive);
+            }
+            //having a flag of 1 means that you have sent the current process to the waiting queues of IO devices. you should break the loop and get the next process
+
+            if(flag==1){
+                break;
             }
             line_offset++;
             duration_temp+=duration;
         }
-        if(flag==0){
-        current_process.last_executed_line += line_offset;}//we should record where we left.
-        cout<<"Current Processin su ve surasında kaldın: "<<current_process.name<<" - "<<current_process.last_executed_line<<endl;
+        //if it is a usual loop, without any break, we should update the last executed line.
+
+        if(flag1==0){
+            current_process.last_executed_line += line_offset;}//we should record where we left.
         TIME+=duration_temp;//TIME is updated.
-        cout<<"Time yenilendi: "<<TIME<<endl;
-        aa  = (TIME_Printer0 <=TIME && !Printer_0_Wait_Queue.empty());
-        bb  = (TIME_Printer1 <= TIME && !Printer_1_Wait_Queue.empty());
-        cc  = (TIME_Harddrive <= TIME && !Hard_Drive_Wait_Queue.empty());
-        if( aa   &&  bb   && cc){
-            long mi=(min(TIME_Printer0,TIME_Printer1),TIME_Harddrive);
-            if((mi==TIME_Harddrive && mi == TIME_Printer0 && mi == TIME_Printer1) || (mi!=TIME_Harddrive && mi == TIME_Printer0 && mi == TIME_Printer1)){
-                Process p = Printer_0_Wait_Queue.front();
-                cout<<"Process "<<p.name<<" in  zamanı geldi printer-0 dan cıkartıp ready queya koy."<<endl;
-                Ready_Queue.push(p);
-                Printer_0_Wait_Queue.pop();
-                update_outputfile_printer0(&outfile_printer0,TIME_Printer0);
 
-                p = Printer_1_Wait_Queue.front();
-                cout<<"Process "<<p.name<<" in  zamanı geldi printer-1 dan cıkartıp ready queya koy."<<endl;
-                Ready_Queue.push(p);
-                Printer_1_Wait_Queue.pop();
-                update_outputfile_printer1(&outfile_printer1,TIME_Printer1);
-
-                p = Hard_Drive_Wait_Queue.front();
-                cout<<"Process "<<p.name<<" in  zamanı geldi harddrive dan cıkartıp ready queya koy."<<endl;
-                Ready_Queue.push(p);
-                Hard_Drive_Wait_Queue.pop();
-                update_outputfile_harddrive(&outfile_harddrive,TIME_Harddrive);
-            }
-            else if(mi==TIME_Harddrive && mi==TIME_Printer0 && mi!=TIME_Printer1){
-                Process p = Printer_0_Wait_Queue.front();
-                cout<<"Process "<<p.name<<" in  zamanı geldi printer-0 dan cıkartıp ready queya koy."<<endl;
-                Ready_Queue.push(p);
-                Printer_0_Wait_Queue.pop();
-                update_outputfile_printer0(&outfile_printer0,TIME_Printer0);
-
-                p = Hard_Drive_Wait_Queue.front();
-                cout<<"Process "<<p.name<<" in  zamanı geldi harddrive dan cıkartıp ready queya koy."<<endl;
-                Ready_Queue.push(p);
-                Hard_Drive_Wait_Queue.pop();
-                update_outputfile_harddrive(&outfile_harddrive,TIME_Harddrive);
-
-                p = Printer_1_Wait_Queue.front();
-                cout<<"Process "<<p.name<<" in  zamanı geldi printer-1 dan cıkartıp ready queya koy."<<endl;
-                Ready_Queue.push(p);
-                Printer_1_Wait_Queue.pop();
-                update_outputfile_printer1(&outfile_printer1,TIME_Printer1);
-            }
-            else if(mi==TIME_Harddrive && mi== TIME_Printer1 && mi!=TIME_Printer0){
-                Process p = Printer_1_Wait_Queue.front();
-                cout<<"Process "<<p.name<<" in  zamanı geldi printer-1 dan cıkartıp ready queya koy."<<endl;
-                Ready_Queue.push(p);
-                Printer_1_Wait_Queue.pop();
-                update_outputfile_printer1(&outfile_printer1,TIME_Printer1);
-
-                p = Hard_Drive_Wait_Queue.front();
-                cout<<"Process "<<p.name<<" in  zamanı geldi harddrive dan cıkartıp ready queya koy."<<endl;
-                Ready_Queue.push(p);
-                Hard_Drive_Wait_Queue.pop();
-                update_outputfile_harddrive(&outfile_harddrive,TIME_Harddrive);
-
-                p = Printer_0_Wait_Queue.front();
-                cout<<"Process "<<p.name<<" in  zamanı geldi printer-0 dan cıkartıp ready queya koy."<<endl;
-                Ready_Queue.push(p);
-                Printer_0_Wait_Queue.pop();
-                update_outputfile_printer0(&outfile_printer0,TIME_Printer0);
-            }
-            else if(mi==TIME_Printer0 && mi!=TIME_Printer1 && mi!=TIME_Harddrive){
-                Process p = Printer_0_Wait_Queue.front();
-                cout<<"Process "<<p.name<<" in  zamanı geldi printer-0 dan cıkartıp ready queya koy."<<endl;
-                Ready_Queue.push(p);
-                Printer_0_Wait_Queue.pop();
-                update_outputfile_printer0(&outfile_printer0,TIME_Printer0);
-
-                long mii = min(TIME_Printer1,TIME_Harddrive);
-                if(mii!=TIME_Printer1 && mii==TIME_Harddrive){
-                    Process t = Hard_Drive_Wait_Queue.front();
-                    cout<<"Process "<<t.name<<" in  zamanı geldi harddrive dan cıkartıp ready queya koy."<<endl;
-                    Ready_Queue.push(t);
-                    Hard_Drive_Wait_Queue.pop();
-                    update_outputfile_harddrive(&outfile_harddrive,TIME_Harddrive);
-                    t = Printer_1_Wait_Queue.front();
-                    cout<<"Process "<<t.name<<" in  zamanı geldi printer-1 dan cıkartıp ready queya koy."<<endl;
-                    Ready_Queue.push(t);
-                    Printer_1_Wait_Queue.pop();
-                    update_outputfile_printer1(&outfile_printer1,TIME_Printer1);
-                }
-                else{
-                    Process t = Printer_1_Wait_Queue.front();
-                    cout<<"Process "<<t.name<<" in  zamanı geldi printer-1 dan cıkartıp ready queya koy."<<endl;
-                    Ready_Queue.push(t);
-                    Printer_1_Wait_Queue.pop();
-                    update_outputfile_printer1(&outfile_printer1,TIME_Printer1);
-
-                    t = Hard_Drive_Wait_Queue.front();
-                    cout<<"Process "<<t.name<<" in  zamanı geldi harddrive dan cıkartıp ready queya koy."<<endl;
-                    Ready_Queue.push(t);
-                    Hard_Drive_Wait_Queue.pop();
-                    update_outputfile_harddrive(&outfile_harddrive,TIME_Harddrive);
-                }
-            }
-
-            else if(mi   == TIME_Printer1   &&  mi !=   TIME_Printer0   &&  mi !=   TIME_Harddrive){
-                Process p = Printer_1_Wait_Queue.front();
-                cout<<"Process "<<p.name<<" in  zamanı geldi printer-1 dan cıkartıp ready queya koy."<<endl;
-                Ready_Queue.push(p);
-                Printer_1_Wait_Queue.pop();
-                update_outputfile_printer1(&outfile_printer1,TIME_Printer1);
-
-                long mii = min(TIME_Printer0,TIME_Harddrive);
-                if(mii!=TIME_Printer0 && mii==TIME_Harddrive){
-                    Process p = Hard_Drive_Wait_Queue.front();
-                    cout<<"Process "<<p.name<<" in  zamanı geldi harddrive dan cıkartıp ready queya koy."<<endl;
-                    Ready_Queue.push(p);
-                    Hard_Drive_Wait_Queue.pop();
-                    update_outputfile_harddrive(&outfile_harddrive,TIME_Harddrive);
-
-                    p = Printer_0_Wait_Queue.front();
-                    cout<<"Process "<<p.name<<" in  zamanı geldi printer-0 dan cıkartıp ready queya koy."<<endl;
-                    Ready_Queue.push(p);
-                    Printer_0_Wait_Queue.pop();
-                    update_outputfile_printer0(&outfile_printer0,TIME_Printer0);
-                }
-                else{
-                    Process t = Printer_0_Wait_Queue.front();
-                    cout<<"Process "<<t.name<<" in  zamanı geldi printer-0 dan cıkartıp ready queya koy."<<endl;
-                    Ready_Queue.push(t);
-                    Printer_0_Wait_Queue.pop();
-                    update_outputfile_printer0(&outfile_printer0,TIME_Printer0);
-
-                    t = Hard_Drive_Wait_Queue.front();
-                    cout<<"Process "<<t.name<<" in  zamanı geldi harddrive dan cıkartıp ready queya koy."<<endl;
-                    Ready_Queue.push(t);
-                    Hard_Drive_Wait_Queue.pop();
-                    update_outputfile_harddrive(&outfile_harddrive,TIME_Harddrive);
-
-                }
-            }
-            else if(mi   != TIME_Printer1   &&  mi !=   TIME_Printer0   &&  mi ==   TIME_Harddrive){
-                Process p = Hard_Drive_Wait_Queue.front();
-                cout<<"Process "<<p.name<<" in  zamanı geldi harddrive dan cıkartıp ready queya koy."<<endl;
-                Ready_Queue.push(p);
-                Hard_Drive_Wait_Queue.pop();
-                update_outputfile_harddrive(&outfile_harddrive,TIME_Harddrive);
-
-                long mii = min(TIME_Printer0,TIME_Printer1);
-                if(mii!=TIME_Printer0 && mii==TIME_Printer1){
-                    Process t = Printer_1_Wait_Queue.front();
-                    cout<<"Process "<<t.name<<" in  zamanı geldi printer-1 dan cıkartıp ready queya koy."<<endl;
-                    Ready_Queue.push(t);
-                    Printer_1_Wait_Queue.pop();
-                    update_outputfile_printer1(&outfile_printer1,TIME_Printer1);
-
-                    t = Printer_0_Wait_Queue.front();
-                    cout<<"Process "<<t.name<<" in  zamanı geldi printer-0 dan cıkartıp ready queya koy."<<endl;
-                    Ready_Queue.push(t);
-                    Printer_0_Wait_Queue.pop();
-                    update_outputfile_printer0(&outfile_printer0,TIME_Printer0);
-                }
-                else{
-                    Process t = Printer_0_Wait_Queue.front();
-                    cout<<"Process "<<t.name<<" in  zamanı geldi printer-0 dan cıkartıp ready queya koy."<<endl;
-                    Ready_Queue.push(t);
-                    Printer_0_Wait_Queue.pop();
-                    update_outputfile_printer0(&outfile_printer0,TIME_Printer0);
-
-                    t = Printer_1_Wait_Queue.front();
-                    cout<<"Process "<<t.name<<" in  zamanı geldi printer-1 dan cıkartıp ready queya koy."<<endl;
-                    Ready_Queue.push(t);
-                    Printer_1_Wait_Queue.pop();
-                    update_outputfile_printer1(&outfile_printer1,TIME_Printer1);
-                }
-            }
-        }
-        else if (aa && bb && !cc){
-            long mii = min(TIME_Printer0,TIME_Printer1);
-                if(mii!=TIME_Printer0 && mii==TIME_Printer1){
-                    Process p = Printer_1_Wait_Queue.front();
-                    cout<<"Process "<<p.name<<" in  zamanı geldi printer-1 dan cıkartıp ready queya koy."<<endl;
-                    Ready_Queue.push(p);
-                    Printer_1_Wait_Queue.pop();
-                    update_outputfile_printer1(&outfile_printer1,TIME_Printer1);
-
-                    p = Printer_0_Wait_Queue.front();
-                    cout<<"Process "<<p.name<<" in  zamanı geldi printer-0 dan cıkartıp ready queya koy."<<endl;
-                    Ready_Queue.push(p);
-                    Printer_0_Wait_Queue.pop();
-                    update_outputfile_printer0(&outfile_printer0,TIME);
-                }
-                else{
-                    Process p = Printer_0_Wait_Queue.front();
-                    cout<<"Process "<<p.name<<" in  zamanı geldi printer-0 dan cıkartıp ready queya koy."<<endl;
-                    Ready_Queue.push(p);
-                    Printer_0_Wait_Queue.pop();
-                    update_outputfile_printer0(&outfile_printer0,TIME);
-
-                    p = Printer_1_Wait_Queue.front();
-                    cout<<"Process "<<p.name<<" in  zamanı geldi printer-1 dan cıkartıp ready queya koy."<<endl;
-                    Ready_Queue.push(p);
-                    Printer_1_Wait_Queue.pop();
-                    update_outputfile_printer1(&outfile_printer1,TIME_Printer1);
-                }
-        }
-        else if (aa && cc && !bb){
-            long mii = min(TIME_Printer0,TIME_Harddrive);
-            if(mii!=TIME_Printer0 && mii==TIME_Harddrive){
-                Process p = Hard_Drive_Wait_Queue.front();
-                cout<<"Process "<<p.name<<" in  zamanı geldi harddrive dan cıkartıp ready queya koy."<<endl;
-                Ready_Queue.push(p);
-                Hard_Drive_Wait_Queue.pop();
-                update_outputfile_harddrive(&outfile_harddrive,TIME);
-
-                p = Printer_0_Wait_Queue.front();
-                cout<<"Process "<<p.name<<" in  zamanı geldi printer-0 dan cıkartıp ready queya koy."<<endl;
-                Ready_Queue.push(p);
-                Printer_0_Wait_Queue.pop();
-                update_outputfile_printer0(&outfile_printer0,TIME);
-            }
-            else{
-                Process p = Printer_0_Wait_Queue.front();
-                cout<<"Process "<<p.name<<" in  zamanı geldi printer-0 dan cıkartıp ready queya koy."<<endl;
-                Ready_Queue.push(p);
-                Printer_0_Wait_Queue.pop();
-                update_outputfile_printer0(&outfile_printer0,TIME);
-
-                p = Hard_Drive_Wait_Queue.front();
-                cout<<"Process "<<p.name<<" in  zamanı geldi harddrive dan cıkartıp ready queya koy."<<endl;
-                Ready_Queue.push(p);
-                Hard_Drive_Wait_Queue.pop();
-                update_outputfile_harddrive(&outfile_harddrive,TIME);
-
-            }
-        }
-        else if (bb && cc && !aa){
-            long mii = min(TIME_Printer1,TIME_Harddrive);
-            if(mii!=TIME_Printer1 && mii==TIME_Harddrive){
-                Process p = Hard_Drive_Wait_Queue.front();
-                cout<<"Process "<<p.name<<" in  zamanı geldi harddrive dan cıkartıp ready queya koy."<<endl;
-                Ready_Queue.push(p);
-                Hard_Drive_Wait_Queue.pop();
-                update_outputfile_harddrive(&outfile_harddrive,TIME);
-                p = Printer_1_Wait_Queue.front();
-                cout<<"Process "<<p.name<<" in  zamanı geldi printer-1 dan cıkartıp ready queya koy."<<endl;
-                Ready_Queue.push(p);
-                Printer_1_Wait_Queue.pop();
-                update_outputfile_printer1(&outfile_printer1,TIME_Printer1);
-            }
-            else{
-                Process p = Printer_1_Wait_Queue.front();
-                cout<<"Process "<<p.name<<" in  zamanı geldi printer-1 dan cıkartıp ready queya koy."<<endl;
-                Ready_Queue.push(p);
-                Printer_1_Wait_Queue.pop();
-                update_outputfile_printer1(&outfile_printer1,TIME_Printer1);
-                p = Hard_Drive_Wait_Queue.front();
-                cout<<"Process "<<p.name<<" in  zamanı geldi harddrive dan cıkartıp ready queya koy."<<endl;
-                Ready_Queue.push(p);
-                Hard_Drive_Wait_Queue.pop();
-                update_outputfile_harddrive(&outfile_harddrive,TIME_Harddrive);
-            }
-        }
-        else if(aa && !bb && !cc){
-            Process p = Printer_0_Wait_Queue.front();
-            cout<<"Process "<<p.name<<" in  zamanı geldi printer-0 dan cıkartıp ready queya koy."<<endl;
-            Ready_Queue.push(p);
-            Printer_0_Wait_Queue.pop();
-            update_outputfile_printer0(&outfile_printer0,TIME);
-        }
-        else if(bb && !aa && !cc){
-            Process p = Printer_1_Wait_Queue.front();
-            cout<<"Process "<<p.name<<" in  zamanı geldi printer-1 dan cıkartıp ready queya koy."<<endl;
-            Ready_Queue.push(p);
-            Printer_1_Wait_Queue.pop();
-            update_outputfile_printer1(&outfile_printer1,TIME);
-        }
-        else if(cc && !aa && !bb){
-            Process p = Hard_Drive_Wait_Queue.front();
-            cout<<"Process "<<p.name<<" in  zamanı geldi harddrive dan cıkartıp ready queya koy."<<endl;
-            Ready_Queue.push(p);
-            Hard_Drive_Wait_Queue.pop();
-            update_outputfile_harddrive(&outfile_harddrive,TIME);
-        }
-
-        if(!Processes.empty() && TIME>=Processes.front().arrival_time){ 
+        if(!Processes.empty() && TIME>=Processes.front().arrival_time){
 //if there are processes not arrived and their arrival time is past while we are processing the previous process, we should put it into ready queue.
             Process front=Processes.front();
-            cout<<"Yeni process geldi hanıım:  "<<front.name<<endl;
             Ready_Queue.push(front);
             Processes.pop();
         }
-//if the previous instruction is not exit, the process is not completed.we should put it into ready queue and update the output file.
+//if the previous instruction is not exit, the process is not completed.we should put it into ready queue if it is not sent to IO devices and update the output file.
         if(instruction_name!="exit"){
-            if(flag==0){
-            Ready_Queue.push(current_process);
+            if(flag1==0){
+                Ready_Queue.push(current_process);
             }
             update_outputfile(&outfile);
         }
 //if it is exit, then it is completed we are done with that process, we will increment completed by 1  and update the output file.
         else{update_outputfile(&outfile);
-        completed++;}
+            completed++;}
     }
 //until all processes are completed, we are continueing to do the same thing. if they are all completed, we're done.
     infile.close();
     outfile.close();
+    outfile_printer0.close();
+    outfile_printer1.close();
+    outfile_harddrive.close();
     return 0;
 }

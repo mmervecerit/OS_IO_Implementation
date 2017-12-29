@@ -1,0 +1,30 @@
+Merve Cerit - 2012402015
+OS_IO_Implementation
+Please see Project Definition File.
+**Deliverable**
+
+C++ source code named CmpE322_P3_2012402015.cpp
+
+**How to compile it?**
+
+g++ CmpE322_P3_2012402015.cpp -o CmpE322_P3_2012402015 -std=c++11
+
+**How to run it?**
+
+After making sure that you put definition file as “definition.txt” and codefiles as “x.code.txt”(x is a number) to the same directory with the source code, it is enough to run below command:
+
+./CmpE322_P3_2012402015
+
+**What to expect as output?**
+
+The scheduler creates 4 files called “output.txt”, “output_10.txt”, “output_11.txt”, “output_11.txt” in the same directory.
+“output.txt” contains the information of the Ready Queue.
+“output_10.txt” contains the information of the Waiting Queue of Printer 0.
+“output_11.txt” contains the information of the Waiting Queue of Printer 1.
+“output_12.txt” contains the information the Waiting Queue of Hard Drive.
+
+**To understand how the scheduler works, please check out the comments provided in the source code and the test cases in Github.**
+
+**For more info: mmervecerit@gmail.com**
+
+
